@@ -1,0 +1,150 @@
+/**
+ * 🎨 My Agent Skills - Premium UI & Animation Templates
+ * 这是一个开箱即用、富于动效和现代感的前端 CSS 样式库。
+ */
+
+/* ==========================================================================
+   1. 💫 流畅微动画与 Keyframes
+   ========================================================================== */
+
+/* 柔和滑入与淡入 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 呼吸流光效果（用于吸引注意的按钮） */
+@keyframes pulseGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(99, 102, 241, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+  }
+}
+
+.btn-pulse-glow {
+  animation: pulseGlow 2s infinite;
+}
+
+/* 渐变流光背景动画 */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient-bg {
+  background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+
+/* ==========================================================================
+   2. ✨ 现代毛玻璃效果 (Glassmorphism)
+   ========================================================================== */
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+}
+
+/* 暗色模式毛玻璃 */
+.dark-glass-card {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* ==========================================================================
+   3. ⚡ 动静皆宜的交互元素 (Hover & Interactive)
+   ========================================================================== */
+
+/* 平滑过渡基类 */
+.interactive-element {
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* 高端悬浮卡片效果 */
+.hover-float-card {
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.hover-float-card:hover {
+  transform: translateY(-6px) scale(1.01);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.12);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+/* 霓虹按钮渐变 */
+.btn-neon-gradient {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  color: #ffffff;
+  border: none;
+  padding: 12px 24px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-neon-gradient:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+  box-shadow: 0 10px 20px -5px rgba(99, 102, 241, 0.5);
+}
+
+/* ==========================================================================
+   4. 💀 高端骨架屏占位图动画 (Skeleton Loader)
+   ========================================================================== */
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-placeholder {
+  position: relative;
+  overflow: hidden;
+  background-color: #f1f5f9;
+  border-radius: 4px;
+}
+
+.skeleton-placeholder::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.2) 20%,
+    rgba(255, 255, 255, 0.5) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 1.5s infinite;
+  content: '';
+}
