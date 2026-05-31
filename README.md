@@ -36,17 +36,17 @@
 ### 1. 📝 Git 自动规范提交 (`git-conventional-commit`)
 *   **用途**：当你想生成符合规范的提交消息或进行 Git 提交时激活。
 *   **特性**：自动分析 `git diff`，依据 Conventional Commits 标准判定类型（`feat`, `fix`, `docs` 等），并自动以精练的中文编写规范的提交信息。
-*   **入口路径**：[skills/git-conventional-commit/](file:///e:/works/skills/skills/git-conventional-commit/SKILL.md)
+*   **入口路径**：[skills/git-conventional-commit/](skills/git-conventional-commit/SKILL.md)
 
 ### 2. 🔍 高级代码清洁与安全审查 (`code-clean-reviewer`)
 *   **用途**：在提交代码或合并 PR 前进行静态安全与质量审查。
 *   **特性**：寻找硬编码密钥、SQL 注入、XSS、逻辑死循环、资源泄漏，并基于 Clean Code 原则优化命名、降低圈复杂度。
-*   **入口路径**：[skills/code-clean-reviewer/](file:///e:/works/skills/skills/code-clean-reviewer/SKILL.md)
+*   **入口路径**：[skills/code-clean-reviewer/](skills/code-clean-reviewer/SKILL.md)
 
 ### 3. 🎨 前端 UI/微动效打磨 (`frontend-ui-polisher`)
 *   **用途**：当需要优化网页 UI 视觉效果、编写 CSS 或提升用户交互体验时激活。
-*   **特性**：指导 Agent 引入毛玻璃、高级渐变色、平滑微悬浮交互和高水准 HSL 配色方案，拒绝简陋粗糙的默认样式。
-*   **入口路径**：[skills/frontend-ui-polisher/](file:///e:/works/skills/skills/frontend-ui-polisher/SKILL.md)
+*   **特性**：指导 Agent 引入毛玻璃、高级渐变色、平滑微悬浮交互 and 高水准 HSL 配色方案，拒绝简陋粗糙的默认样式。
+*   **入口路径**：[skills/frontend-ui-polisher/](skills/frontend-ui-polisher/SKILL.md)
 
 ---
 

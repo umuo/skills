@@ -74,4 +74,4 @@ tags: [git, workflow, productivity]
 
 ## 📚 辅助参考
 若需要更详尽的 Conventional Commits 标准说明，请参考并读取：
-[conventional-commits.md](file:///e:/works/skills/skills/git-conventional-commit/references/conventional-commits.md)
+[conventional-commits.md](references/conventional-commits.md)

@@ -51,4 +51,4 @@ tags: [nacos, devops, openapi, cloud-native]
 
 ## 📚 辅助参考与知识库
 关于详细的 Nacos 1.x/2.x 与 3.x 核心接口对照表、脱敏 cURL 运行示例以及详细的安全接入最佳实践，请阅读并装载：
-[remote-nacos-guide.md](file:///e:/works/skills/skills/nacos-operator/references/remote-nacos-guide.md)
+[remote-nacos-guide.md](references/remote-nacos-guide.md)

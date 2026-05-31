@@ -64,4 +64,4 @@ AI Agent 应从以下三个核心维度对代码进行细致评估：
 
 ## 📚 辅助参考
 若需要参考更详尽的安全漏洞和代码清洁规范，请参考：
-[security-checklist.md](file:///e:/works/skills/skills/code-clean-reviewer/references/security-checklist.md)
+[security-checklist.md](references/security-checklist.md)

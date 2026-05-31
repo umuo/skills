@@ -55,4 +55,4 @@ tags: [frontend, css, ui, ux, aesthetics]
 
 ## 📚 辅助参考与 CSS 预置模板
 若需直接复制和复用已经封装好的高端 CSS 动效、毛玻璃卡片和骨架屏样式，请阅读并装载：
-[animation-templates.css](file:///e:/works/skills/skills/frontend-ui-polisher/assets/animation-templates.css)
+[animation-templates.css](assets/animation-templates.css)
