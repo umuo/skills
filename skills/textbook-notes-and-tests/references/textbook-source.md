@@ -1,0 +1,23 @@
+# 教材下载依赖
+
+上游：[flowioo/smartedu-textbook-download](https://github.com/flowioo/smartedu-textbook-download)。这是电子教材 PDF 下载 skill，测评题由本 skill 根据教材编写。
+
+## 安装与调用
+
+先查找当前环境已安装的 `smartedu-textbook-download`，有则读取实际 `SKILL.md` 后调用。缺失时使用用户指定的安装方式，并遵守运行环境的安装权限：
+
+```bash
+npx skills add https://github.com/flowioo/smartedu-textbook-download --skill smartedu-textbook-download
+```
+
+安装是运行依赖准备，不是将该上游仓库复制到本 skill 内。不要假定其安装目录，也不要为当前任务修改全局共享 skill 的默认配置。安装或下载不可用时可让用户提供已有教材 PDF。
+
+## 筛选下载范围
+
+截至 2026-09-14 核对的上游说明，入口是 `download_all.py`，包含 Chrome 登录流程，支持 `--spawn`；下载目标由 `build_targets.py` 的 `DEFAULT_TARGETS` 和生成的 `targets.json` 驱动。默认清单可能下载多个学科、全年级，并非用户所需的单册教材。
+
+运行前读取当前安装版本说明和脚本帮助/相关逻辑，核实它如何生成、筛选、覆盖目标清单与设置输出路径；不要臆造 `--grade` 或 `--unit` 参数。若仍使用默认目标，在任务专用工作副本中配置并核对精确目标，确保后续入口不会重新覆盖过滤结果，再启动下载。筛选出版社、学科、年级、册次、修订版，以及用户的六三/五四学制；不能把上游“排除五四学制”的默认建议套用于明确使用五四学制的学生。
+
+上游可能需要 Chrome、curl、requests、websockets 和用户登录。需要扫码或交互验证时让用户在官方页面完成，不索取聊天中的密码或 token。认证文件、运行缓存与教材保存在任务工作目录或上游明确指定的运行目录，不能提交到本 skills 仓库；不输出认证内容。遵守当前环境浏览器能力和权限，不为绕开限制另行获取登录凭据。
+
+目录缓存可减少元数据请求，但未下载的 PDF 仍需要网络。下载成功后核对 PDF 可打开、封面版本与目录；认证失败、缺书、目录请求失败要区分说明。不能静默改下载另一版教材。

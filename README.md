@@ -50,6 +50,15 @@
 
 ---
 
+### 4. 📚 教材课堂笔记与测评 (`textbook-notes-and-tests`)
+* **用途**：依据小学、初中或高中教材，生成手写风课堂笔记，以及知识点专项、单元、期中、期末测评试卷。
+* **特性**：小学图文讲解、初高中简约重点标注；使用 imagegen 逐页生图，预留答题空间，再通过 Python 按顺序合并为 A4 PDF。支持多页笔记与独立答案解析。
+* **依赖**：`smartedu-textbook-download`（获取教材）、`imagegen`（生成页面）、Python 3.10+ 及 Pillow、reportlab（合并 PDF）。外部 skill 的安装命令与调用要求见技能正文。
+* **示例**：“根据人教版小学三年级数学上册第二单元，生成图文手写课堂笔记和单元测评，导出 A4 PDF。”
+* **入口路径**：[skills/textbook-notes-and-tests/](skills/textbook-notes-and-tests/SKILL.md)
+
+---
+
 ## ⚙️ 如何使用
 
 ### 1. 本地直接激活 (推荐)
