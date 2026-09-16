@@ -59,6 +59,15 @@
 
 ---
 
+### 5. 🌐 子域名查询 (`crt-subdomain-search`)
+* **用途**：通过 crt.name 查询指定域名下的公开子域名。
+* **特性**：以 eTLD+1 为查询目标，支持根域名或其 URL 输入、去重排序、根域名过滤、首次发现日期，以及纯文本或 JSON 导出；保留多级子域名和通配符记录。免费额度为每 IP 每天 100 次请求。
+* **依赖**：Python 3、curl。
+* **示例**：“帮我查 linux.do 的子域名，并导出完整列表。”
+* **入口路径**：[skills/crt-subdomain-search/](skills/crt-subdomain-search/SKILL.md)
+
+---
+
 ## ⚙️ 如何使用
 
 ### 1. 本地直接激活 (推荐)
