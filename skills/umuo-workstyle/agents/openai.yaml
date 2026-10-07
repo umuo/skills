@@ -1,0 +1,6 @@
+interface:
+  display_name: "umuo 的协作偏好"
+  short_description: "按个人偏好推进开发、调研和学习，重视可用交付、原理、交互与隐私"
+  default_prompt: "使用 $umuo-workstyle，按我的个人协作偏好完成当前任务。"
+policy:
+  allow_implicit_invocation: true
