@@ -301,6 +301,214 @@ def handle_error_response(
     return 4
 
 
+def sanitize_upload_filename(name: str) -> str:
+    """Keep filename compatible with Solo's upload rules."""
+    cleaned = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fa5._-]", "", name)
+    if not cleaned or cleaned.startswith("."):
+        suffix = Path(name).suffix if re.fullmatch(r"\.[a-zA-Z0-9]+", Path(name).suffix) else ".png"
+        return f"cover{suffix}"
+    return cleaned
+
+
+def extract_upload_config(html_text: str) -> tuple[str, str, str]:
+    """Extract uploadToken, uploadURL, and uploadMsg from Solo admin-index HTML."""
+    def _match(field: str) -> str:
+        pattern = rf"""Label\.{field}\s*=\s*(?:"([^"]*)"|'([^']*)')"""
+        found = re.search(pattern, html_text)
+        if not found:
+            return ""
+        return (found.group(1) if found.group(1) is not None else found.group(2)).strip()
+
+    token = _match("uploadToken")
+    upload_url = _match("uploadURL") or "https://ld246.com/upload/client"
+    upload_msg = _match("uploadMsg")
+    return token, upload_url, upload_msg
+
+
+def upload_multipart(upload_url: str, upload_token: str, file_path: Path, safe_name: str, body_path: Path) -> tuple[int, str]:
+    """Upload a local image via multipart form-data using curl."""
+    curl_bin = shutil.which("curl")
+    if not curl_bin:
+        raise RuntimeError("curl executable not found in PATH")
+
+    suffix = Path(safe_name).suffix or ".png"
+    fd, staged_name = tempfile.mkstemp(prefix="solo_up_", suffix=suffix)
+    os.close(fd)
+    staged_path = Path(staged_name)
+
+    try:
+        shutil.copyfile(file_path, staged_path)
+        cmd = [
+            curl_bin,
+            "-sS",
+            "-X",
+            "POST",
+            "-H",
+            "User-Agent: Solo/4.4.0",
+            "-H",
+            f"X-Upload-Token: {upload_token}",
+            "-F",
+            f"file[]=@{staged_path};filename={safe_name}",
+            "-o",
+            str(body_path),
+            "-w",
+            "%{http_code}\t%{content_type}",
+            upload_url,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            err_msg = proc.stderr.strip() or f"curl exited with status {proc.returncode}"
+            raise RuntimeError(err_msg)
+
+        meta = proc.stdout.strip()
+        if "\t" in meta:
+            code_str, content_type = meta.split("\t", 1)
+        else:
+            code_str, content_type = meta, ""
+        http_code = int(code_str) if code_str.isdigit() else 0
+        return http_code, content_type.strip()
+    finally:
+        staged_path.unlink(missing_ok=True)
+
+
+def handle_upload_file(file_arg: str, base_url: str, cred: CredentialCandidate) -> int:
+    """Fetch upload token from /admin-index.do and upload local image to Solo's configured image host."""
+    src_path = Path(file_arg).expanduser()
+    if not src_path.is_file():
+        print(f"Error: upload file does not exist: {src_path}", file=sys.stderr)
+        return 4
+    size = src_path.stat().st_size
+    if size <= 0:
+        print(f"Error: upload file is empty: {src_path}", file=sys.stderr)
+        return 4
+    if size > 10 * 1024 * 1024:
+        print(f"Error: upload file exceeds Solo's 10MB limit ({size} bytes): {src_path}", file=sys.stderr)
+        return 4
+
+    safe_name = sanitize_upload_filename(src_path.name)
+
+    fd1, idx_tmp_name = tempfile.mkstemp(prefix="solo_idx_")
+    os.close(fd1)
+    idx_tmp = Path(idx_tmp_name)
+
+    fd2, up_tmp_name = tempfile.mkstemp(prefix="solo_up_resp_")
+    os.close(fd2)
+    up_tmp = Path(up_tmp_name)
+
+    try:
+        try:
+            http_code, content_type = run_curl("GET", build_url(base_url, "/admin-index.do"), cred.api_key, None, idx_tmp)
+        except RuntimeError as exc:
+            print(f"Error: failed to fetch upload token from /admin-index.do: {exc}", file=sys.stderr)
+            return 4
+
+        idx_bytes = idx_tmp.read_bytes()
+        if http_code >= 400 or http_code == 0:
+            return handle_error_response(http_code, content_type, idx_bytes, cred)
+
+        upload_token, upload_url, upload_msg = extract_upload_config(idx_bytes.decode("utf-8", errors="replace"))
+        if not upload_token:
+            detail = f" ({upload_msg})" if upload_msg else ""
+            print(
+                f"Error: Solo /admin-index.do returned empty uploadToken{detail}. "
+                "Skip the cover image or use an external HTTPS image host instead.",
+                file=sys.stderr,
+            )
+            return 5
+
+        try:
+            up_code, up_ct = upload_multipart(upload_url, upload_token, src_path, safe_name, up_tmp)
+        except RuntimeError as exc:
+            print(f"Error: image upload request failed: {exc}", file=sys.stderr)
+            return 5
+
+        up_bytes = up_tmp.read_bytes()
+        if up_code >= 400 or up_code == 0:
+            print(
+                f"Error: image host returned HTTP {up_code} ({up_ct or 'unknown'}): {summarize_snippet(up_bytes)}",
+                file=sys.stderr,
+            )
+            return 5
+
+        try:
+            up_json = json.loads(up_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            print(
+                f"Error: image host returned non-JSON response ({up_ct or 'unknown'}): {summarize_snippet(up_bytes)}",
+                file=sys.stderr,
+            )
+            return 5
+
+        succ_map = (up_json.get("data") or {}).get("succMap") if isinstance(up_json, dict) else None
+        if up_json.get("code", 0) != 0 or not isinstance(succ_map, dict) or not succ_map:
+            err_msg = up_json.get("msg", "") if isinstance(up_json, dict) else ""
+            print(f"Error: image upload failed: {err_msg or summarize_snippet(up_bytes)}", file=sys.stderr)
+            return 5
+
+        uploaded_url = str(next(iter(succ_map.values()))).strip()
+        if not uploaded_url.startswith(("http://", "https://")):
+            print(f"Error: uploaded image URL is invalid: {uploaded_url}", file=sys.stderr)
+            return 5
+        if len(uploaded_url) > 255:
+            print(f"Error: uploaded image URL exceeds Solo's 255-char articleImg1URL limit ({len(uploaded_url)} chars).", file=sys.stderr)
+            return 5
+
+        print(json.dumps({"code": 0, "url": uploaded_url, "filename": safe_name}, ensure_ascii=False, indent=2))
+        return 0
+    finally:
+        idx_tmp.unlink(missing_ok=True)
+        up_tmp.unlink(missing_ok=True)
+
+
+def handle_upload_url(remote_url: str, base_url: str, cred: CredentialCandidate) -> int:
+    """Transfer a remote image URL into Solo's community image host via /upload/fetch."""
+    cleaned = (remote_url or "").strip()
+    if not cleaned.startswith(("http://", "https://")):
+        print(f"Error: --upload-url requires an http/https URL, got: {cleaned}", file=sys.stderr)
+        return 4
+
+    payload = json.dumps({"url": cleaned}, ensure_ascii=False).encode("utf-8")
+    fd, body_tmp_name = tempfile.mkstemp(prefix="solo_fetch_")
+    os.close(fd)
+    body_tmp = Path(body_tmp_name)
+
+    try:
+        try:
+            http_code, content_type = run_curl("POST", build_url(base_url, "/upload/fetch"), cred.api_key, payload, body_tmp)
+        except RuntimeError as exc:
+            print(f"Error: /upload/fetch request failed: {exc}", file=sys.stderr)
+            return 4
+
+        raw_bytes = body_tmp.read_bytes()
+        if http_code >= 400 or http_code == 0:
+            return handle_error_response(http_code, content_type, raw_bytes, cred)
+
+        try:
+            parsed = json.loads(raw_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            print(
+                f"Error: /upload/fetch returned non-JSON response ({content_type or 'unknown'}): {summarize_snippet(raw_bytes)}",
+                file=sys.stderr,
+            )
+            return 4
+
+        data = parsed.get("data") if isinstance(parsed, dict) else None
+        fetched_url = str((data or {}).get("url", "")).strip()
+        if parsed.get("code") != 0 or not fetched_url:
+            msg = parsed.get("msg", "") if isinstance(parsed, dict) else ""
+            print(f"Error: /upload/fetch failed: {msg or summarize_snippet(raw_bytes)}", file=sys.stderr)
+            return 5
+
+        if len(fetched_url) > 255:
+            print(f"Error: fetched image URL exceeds Solo's 255-char articleImg1URL limit ({len(fetched_url)} chars).", file=sys.stderr)
+            return 5
+
+        print(json.dumps({"code": 0, "url": fetched_url, "originalURL": cleaned}, ensure_ascii=False, indent=2))
+        return 0
+    finally:
+        body_tmp.unlink(missing_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Call Solo Blog Console REST API safely via curl.",
@@ -314,17 +522,20 @@ def main() -> int:
     parser.add_argument("--output", help="Save binary response (e.g. export zip) to this file path")
     parser.add_argument("--base-url", help="Override SOLO_BASE_URL")
     parser.add_argument("--env-file", help="Override .env lookup with a specific .env file")
-    parser.add_argument("--check", action="store_true", help="Verify credential loading and test GET /console/api-key")
+    action_group = parser.add_mutually_exclusive_group()
+    action_group.add_argument("--check", action="store_true", help="Verify credential loading and test GET /console/api-key")
+    action_group.add_argument("--upload", metavar="FILE", help="Upload a local image via Solo's upload token and print its HTTPS URL")
+    action_group.add_argument("--upload-url", metavar="URL", help="Fetch and re-host a remote image URL via POST /upload/fetch")
     args = parser.parse_args()
 
-    if args.check:
-        method = "GET"
-        api_path = "/console/api-key"
-    else:
+    if not args.check and not args.upload and not args.upload_url:
         if not args.method or not args.path:
-            parser.error("METHOD and PATH are required unless --check is specified.")
+            parser.error("METHOD and PATH are required unless --check, --upload, or --upload-url is specified.")
         method = args.method.upper()
         api_path = args.path
+    else:
+        method = "GET"
+        api_path = "/console/api-key"
 
     cred, base_url, warnings = resolve_credentials(
         cli_base_url=args.base_url,
@@ -343,6 +554,11 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+
+    if args.upload:
+        return handle_upload_file(args.upload, base_url, cred)
+    if args.upload_url:
+        return handle_upload_url(args.upload_url, base_url, cred)
 
     payload = read_request_body(args)
     url = build_url(base_url, api_path)

@@ -117,6 +117,11 @@ Detailed response payloads for every endpoint are documented in [references/resp
 
 All endpoints below require `X-Solo-API-Key: sk-...`. Replace paths below with `solo_api.py <METHOD> "<PATH>"`.
 
+> [!IMPORTANT]
+> **Before writing or publishing an article**, read [references/article-style.md](references/article-style.md) for the article writing and cover-image guidelines:
+> - **Cover first when image generation is available**: Generate 1 landscape cover image (`16:9` / `2.35:1`) summarizing the **whole article**, upload it via `solo_api.py --upload <file>` (or `--upload-url <url>`) to get an HTTPS URL (`<= 255` chars), and place `![文章封面](https://...)` on line 1 of `articleContent`.
+> - **Skip gracefully when unavailable**: If no image-generation skill/tool is available, or image upload fails/is unconfigured, omit the cover image and publish normally — never insert local file paths or Base64 strings.
+
 ### List Articles
 
 ```bash
@@ -142,12 +147,16 @@ Note the type difference: `article.articleTags` in detail responses is an **arra
 ### Create & Update Article
 
 ```bash
+# Optional: upload local cover image (or re-host temp URL) before creating article
+python3 "$SKILL_DIR/scripts/solo_api.py" --upload "/path/to/cover.png"
+# python3 "$SKILL_DIR/scripts/solo_api.py" --upload-url "https://example.com/temp-cover.png"
+
 # Create (POST /console/article/)
 python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/article/" --stdin <<'JSON'
 {
   "article": {
     "articleTitle": "文章标题",
-    "articleContent": "Markdown 内容...",
+    "articleContent": "![文章封面](https://...)\n\n## 引言\n\nMarkdown 内容...",
     "articleAbstract": "摘要（可选，不填自动截取）",
     "articleTags": "标签1,标签2",
     "articlePermalink": "",
@@ -338,8 +347,9 @@ python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/changeRole/{userId}"
 ## Usage Guidelines
 
 1. **Preflight credentials**: Run `solo_api.py --check` first; never trust an untested `.env` variable or skip checking fixed skill `.env` paths.
-2. **Avoid duplicate content**: List existing articles and tags before creating new ones.
-3. **Preserve fields on update**: For both `PUT /console/article/` and `PUT /console/preference/`, fetch the current object first and merge changes (`articleTags` -> comma string for articles).
-4. **Confirm destructive ops**: Show exact title/ID and ask user confirmation before `DELETE` requests.
-5. **Handle two-layer errors properly**: Report `HTTP 401`/`403` HTML errors as authentication/permission issues rather than JSON parsing bugs; report JSON `code != 0` with `msg`.
-6. **Pagination**: URL pattern is `/{page}/{pageSize}/{windowSize}` — start with `1/10/20`.
+2. **Article style & cover image**: Read [references/article-style.md](references/article-style.md) before drafting; prefer generating a whole-article cover image via available image-gen tools and uploading via `--upload`, or omit the cover image cleanly if no image-gen/upload capability is available.
+3. **Avoid duplicate content**: List existing articles and tags before creating new ones.
+4. **Preserve fields on update**: For both `PUT /console/article/` and `PUT /console/preference/`, fetch the current object first and merge changes (`articleTags` -> comma string for articles).
+5. **Confirm destructive ops**: Show exact title/ID and ask user confirmation before `DELETE` requests.
+6. **Handle two-layer errors properly**: Report `HTTP 401`/`403` HTML errors as authentication/permission issues rather than JSON parsing bugs; report JSON `code != 0` with `msg`.
+7. **Pagination**: URL pattern is `/{page}/{pageSize}/{windowSize}` — start with `1/10/20`.
