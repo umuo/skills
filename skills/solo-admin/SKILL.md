@@ -348,32 +348,47 @@ Available skins (directory names): `9JEYM3GONT`, `Andrea`, `Bruce`, `Casper`, `C
 
 ## API Key Management
 
-### Get API Key Status
+Solo supports **multiple API Keys** with usage tracking (creation time, last used time, last endpoint, client IP, and call count), which can also be managed via the Solo Web Admin UI under **后台 → 工具 → API Key 管理** (`#tools/apikey`).
+
+### List API Keys
 
 ```bash
 curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/api-key"
 ```
 
-### Generate New API Key
+Returns masked keys (`maskedKey`) and usage metadata (`id`, `name`, `enabled`, `createdAt`, `lastUsedAt`, `lastUsedIp`, `lastUsedEndpoint`, `callCount`). Plaintext keys are never returned after creation.
+
+### Create New API Key
 
 ```bash
-curl -s -X POST -H "X-Solo-API-Key: $KEY" "$BASE/console/api-key"
+curl -s -X POST -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
+  "$BASE/console/api-key" -d '{"name": "Antigravity Agent"}'
 ```
 
 > [!IMPORTANT]
-> The first API Key must be generated from the Solo admin web UI (cookie auth),
-> or by directly inserting into the database via SSH:
-> ```sql
-> INSERT INTO b3_solo_option (oId, optionCategory, optionValue)
-> VALUES ('apiKey', 'api', 'sk-your-random-32-char-key-here')
-> ON DUPLICATE KEY UPDATE optionValue='sk-your-random-32-char-key-here';
-> ```
+> The plaintext `apiKey` (`sk-...`) is returned **only once** in the `POST` response — save it immediately.
+> For initial bootstrap without any existing key, create one from Solo Web Admin (**工具 → API Key 管理**) using browser login, or insert into MySQL `b3_solo_option` (legacy `apiKey` row is auto-migrated on first use).
+
+### Enable / Disable / Rename API Key
+
+```bash
+curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
+  "$BASE/console/api-key/{id}" -d '{
+  "name": "Codex Agent",
+  "enabled": true
+}'
+```
+
+Both `name` and `enabled` are optional; include whichever fields you want to update.
 
 ### Remove API Key
 
 ```bash
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/api-key"
+# Remove specific key by id
+curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/api-key/{id}"
 ```
+
+(`DELETE /console/api-key?id={id}` is also supported; `DELETE /console/api-key` without `id` only works when at most one key exists.)
 
 ---
 
@@ -440,4 +455,4 @@ curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/changeRole/{userId}"
 5. **Tag management**: Tags are created automatically when used in articles
 6. **Error handling**: Check `code` field — `0` means success, anything else is an error; show `msg` to user
 7. **Pagination**: URL pattern is `/{page}/{pageSize}/{windowSize}` — start with `1/10/20`
-8. **API Key setup**: For first-time setup, generate via SQL insert or Solo web admin
+8. **API Key setup**: Manage keys in Solo Web Admin (**工具 → API Key 管理**, `#tools/apikey`) or via `/console/api-key` endpoints

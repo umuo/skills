@@ -657,32 +657,69 @@
 
 ## API Key 管理
 
-### 获取 API Key — `GET /console/api-key`
+可通过 Solo 后台 **工具 → API Key 管理**（`#tools/apikey`）页面创建、启停、重命名、删除密钥，并查看每个密钥的最近调用时间、调用接口、IP 与累计次数。
+
+### 获取 API Key 列表 — `GET /console/api-key`
 
 ```json
 {
     "code": 0,
-    "apiKey": "abcd****wxyz"
+    "hasKey": true,
+    "apiKey": "sk-aB3c****T2uV",
+    "apiKeys": [
+        {
+            "id": "1763445000123abcd",
+            "name": "Antigravity Agent",
+            "maskedKey": "sk-aB3c****T2uV",
+            "enabled": true,
+            "createdAt": 1763445000123,
+            "lastUsedAt": 1763445123456,
+            "lastUsedIp": "121.43.102.123",
+            "lastUsedEndpoint": "GET /console/tags",
+            "callCount": 5
+        }
+    ]
 }
 ```
 
-> **注意**: 返回值中 API Key 中间部分会被隐藏（mask 处理）。
+> **注意**: 列表只返回脱敏后的 `maskedKey` 与统计字段，绝不回传完整明文密钥；顶层 `hasKey` / `apiKey` 为兼容字段。
 
 ---
 
-### 生成 API Key — `POST /console/api-key`
+### 创建 API Key — `POST /console/api-key`
+
+请求体可选：`{"name": "Antigravity Agent"}`（留空则默认 `"API Key"`）。
 
 ```json
 {
     "code": 0,
-    "apiKey": "aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2u",
-    "msg": "生成成功"
+    "id": "1763445000123abcd",
+    "name": "Antigravity Agent",
+    "apiKey": "sk-aB3cD4eF5gH6iJ7kL8mN9oP0qR1sT2uV3wX",
+    "maskedKey": "sk-aB3c****V3wX",
+    "createdAt": 1763445000123,
+    "msg": "添加成功"
+}
+```
+
+> **注意**: 完整明文 `apiKey` 仅在创建响应中返回一次。
+
+---
+
+### 更新 API Key（启停 / 重命名）— `PUT /console/api-key/{id}`
+
+请求体：`{"enabled": false, "name": "New Name"}`（字段按需传递）。
+
+```json
+{
+    "code": 0,
+    "msg": "更新成功"
 }
 ```
 
 ---
 
-### 删除 API Key — `DELETE /console/api-key`
+### 删除 API Key — `DELETE /console/api-key/{id}`
 
 ```json
 {
