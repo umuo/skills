@@ -1,12 +1,24 @@
 # Solo API 返回值示例
 
-本文档提供 Solo 博客各 API 接口的返回值示例，从源码注释中提取。
+本文档提供 Solo 博客各 API 接口的返回值示例，结合 Solo 4.4.0 源码实现与线上接口实际返回校验整理。
 
 ---
 
-## 通用结构
+## 通用结构 & HTTP 状态码
 
-所有 API 返回 JSON 对象，包含 `code` 字段：
+### 1. 中间件鉴权与网关错误（非 JSON）
+
+当请求缺少 `X-Solo-API-Key`、Key 无效/已禁用/属于旧版失效残留、或角色权限不足时，请求在到达业务 Controller 之前即被 `ConsoleAuthMidware` / `ConsoleAdminAuthMidware` 拦截并返回 **HTML 错误页**（而非 JSON）：
+
+- **HTTP 401 Unauthorized**：返回 HTML（如 `401 Unauthorized!`），表示 API Key 缺失、已禁用、已删除或旧密钥失效。
+- **HTTP 403 Forbidden**：返回 HTML，表示当前凭据无权访问。
+- **HTTP 404 / 5xx**：返回服务器或反向代理 HTML 错误页。
+
+> **排错提示**：切勿直接用 `curl -s ... | python3 -m json.tool` 解析响应，否则 `401` 返回 HTML 会触发 `Expecting value` 而掩盖真实状态码。请使用 `scripts/solo_api.py` 或 `curl -sS -w "\n%{http_code}"`。
+
+### 2. 业务接口成功与失败响应（HTTP 200 JSON）
+
+通过鉴权后，常规接口返回 HTTP 200 及 JSON 对象，包含 `code` 字段（`/console/export/*` 返回 `application/zip` 二进制流除外）：
 
 ```json
 // 成功
@@ -22,7 +34,7 @@
 
 ### 列出文章 — `GET /console/articles/status/{status}/{page}/{pageSize}/{windowSize}`
 
-按文章更新日期和置顶排序。列表中**不包含**文章正文（`articleContent`）。
+按置顶和文章更新/发布日期排序。列表中**不包含**文章正文（`articleContent`），且 Solo 4.4+ **不返回 `articleViewCount`**（线上读取该字段为 `null`）。
 
 ```json
 {
@@ -35,54 +47,85 @@
         {
             "oId": "1609459200000",
             "articleTitle": "2024 年度技术总结",
-            "articleCreateTime": 1609459200000,
-            "articleViewCount": 128,
+            "articleAbstract": "年度技术复盘与架构演进记录...",
+            "articleAbstractText": "年度技术复盘与架构演进记录...",
             "articleTags": "年度总结,技术",
+            "articlePermalink": "/articles/2024/01/01/1609459200000.html",
             "articlePutTop": true,
-            "articleStatus": 0
+            "articleSignId": "1",
+            "articleImg1URL": "https://b3logfile.com/bing/20171226.jpg?imageView2/1/w/1280/h/720",
+            "articleStatus": 0,
+            "authorName": "admin",
+            "articleCreateTime": 1609459200000,
+            "articleUpdateTime": 1609462800000
         },
         {
             "oId": "1609372800000",
             "articleTitle": "Docker 容器化实践",
-            "articleCreateTime": 1609372800000,
-            "articleViewCount": 56,
+            "articleAbstract": "",
+            "articleAbstractText": "本文介绍 Docker 在实际项目中的使用经验...",
             "articleTags": "Docker,DevOps",
+            "articlePermalink": "/articles/2024/01/02/1609372800000.html",
             "articlePutTop": false,
-            "articleStatus": 0
+            "articleSignId": "1",
+            "articleImg1URL": "https://b3logfile.com/bing/20171105.jpg?imageView2/1/w/1280/h/720",
+            "articleStatus": 0,
+            "authorName": "admin",
+            "articleCreateTime": 1609372800000,
+            "articleUpdateTime": 1609376400000
         }
     ]
 }
 ```
 
-**字段说明：**
-- `articleCreateTime`: Unix 毫秒时间戳
+**字段说明（实际返回 13 个字段）：**
+- `articleTitle`: 文章标题（经过 XML 转义）
+- `articleAbstract` / `articleAbstractText`: Markdown 摘要与纯文本摘要
+- `articleTags`: 英文逗号分隔的标签字符串
+- `articlePermalink`: 文章永久路径
+- `articleImg1URL`: 文章首图 URL
+- `articleSignId`: 签名档 ID
+- `authorName`: 作者用户名
+- `articleCreateTime` / `articleUpdateTime`: 创建与更新 Unix 毫秒时间戳
 - `articlePutTop`: 是否置顶
-- `articleStatus`: 0=已发布, 1=草稿
+- `articleStatus`: `0`=已发布, `1`=草稿
+- 注意：**不包含** `articleViewCount` 与 `articleContent`
 
 ---
 
 ### 获取文章详情 — `GET /console/article/{id}`
 
+返回包裹在顶层 `"article"` 对象内：
+
 ```json
 {
     "code": 0,
-    "oId": "1609459200000",
-    "articleTitle": "Docker 容器化实践",
-    "articleAbstract": "本文介绍 Docker 在实际项目中的使用经验...",
-    "articleContent": "# Docker 容器化实践\n\n## 1. 基础概念\n\nDocker 是一个...",
-    "articlePermalink": "/articles/2024/01/01/1609459200000.html",
-    "articleTags": [
-        {"oId": "tag001", "tagTitle": "Docker"},
-        {"oId": "tag002", "tagTitle": "DevOps"}
-    ],
-    "articleSignId": "1",
-    "signs": [
-        {"oId": "1", "signHTML": ""},
-        {"oId": "2", "signHTML": "<hr/>"},
-        {"oId": "3", "signHTML": ""}
-    ]
+    "article": {
+        "oId": "1609459200000",
+        "articleTitle": "Docker 容器化实践",
+        "articleAbstract": "本文介绍 Docker 在实际项目中的使用经验...",
+        "articleAbstractText": "本文介绍 Docker 在实际项目中的使用经验...",
+        "articleContent": "# Docker 容器化实践\n\n## 1. 基础概念\n\nDocker 是一个...",
+        "articlePermalink": "/articles/2024/01/01/1609459200000.html",
+        "articleCreated": 1609459200000,
+        "articleImg1URL": "https://b3logfile.com/bing/20171105.jpg?imageView2/1/w/1280/h/720",
+        "articleStatus": 0,
+        "articleViewPwd": "",
+        "articleTags": [
+            {"oId": "tag001", "tagTitle": "Docker"},
+            {"oId": "tag002", "tagTitle": "DevOps"}
+        ],
+        "articleSignId": "1",
+        "signs": [
+            {"oId": "0", "signHTML": ""},
+            {"oId": "1", "signHTML": "<hr/>"},
+            {"oId": "2", "signHTML": ""}
+        ]
+    }
 }
 ```
+
+> **注意**：详情中的 `article.articleTags` 是对象数组；调用 `PUT /console/article/` 更新文章时，需将其转换为英文逗号分隔字符串（如 `"Docker,DevOps"`），同时保留无需修改的摘要、签名档、永久路径等字段。
 
 ---
 
@@ -760,7 +803,7 @@
 
 ---
 
-## 文章缩略图 — `GET /console/article/thumbs?n=6&w=960&h=540`
+## 文章缩略图 — `GET /console/thumbs?n=6&w=960&h=540`
 
 ```json
 {

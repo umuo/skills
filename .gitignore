@@ -24,3 +24,8 @@ temp/
 .temp/
 .tmp/
 output/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example

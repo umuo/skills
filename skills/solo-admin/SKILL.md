@@ -13,446 +13,333 @@ description: >-
 
 # Solo Blog Admin Skill
 
-Manage **Solo** blog (blog.lacknb.cn) through its REST Console API.
+Manage **Solo** blog (`blog.lacknb.cn`) through its Console REST API.
 
 > [!IMPORTANT]
-> All API calls require the `X-Solo-API-Key` header. The API Key is stored on the
-> server in Solo's option table. If you don't have the key, ask the user to generate
-> one from the Solo admin panel (`POST /console/api-key`).
+> Always use the bundled helper [scripts/solo_api.py](scripts/solo_api.py) when available.
+> It deterministically loads `.env`, validates `sk-` keys, avoids shell quoting conflicts,
+> and catches `HTTP 401` HTML error pages instead of masking them as JSON parse errors.
 
 ---
 
-## Configuration
+## Configuration & Credential Loading
 
-```
+```env
 SOLO_BASE_URL=https://blog.lacknb.cn
-SOLO_API_KEY=<ask user or read from env>
+SOLO_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-The base curl command pattern:
+### Lookup Priority (Do NOT Ask the User Prematurely)
+
+Default shell sessions do **not** inject `SOLO_API_KEY` automatically — the active key
+usually lives in `.env` inside the skill directory. Resolve credentials in this exact order:
+
+1. **Process environment**: `SOLO_API_KEY` / `SOLO_BASE_URL` (ignore empty or placeholder values like `your-api-key-here`, `sk-xxxx...`).
+2. **Sibling `.env` next to this `SKILL.md`**: `<skill-dir>/.env`.
+3. **Fixed agent skill paths** (check these exact paths only; **never** run recursive wildcards like `~/.*/**/solo-admin/.env` or `find ~` because hidden cache folders make them hang):
+   - `~/.gemini/config/skills/solo-admin/.env`
+   - `~/.codex/skills/solo-admin/.env`
+   - `~/.claude/skills/solo-admin/.env`
+   - `~/.agents/skills/solo-admin/.env`
+4. **Prompt the user** only when no valid key is found across all locations above, or when every found key fails with `HTTP 401`.
+
+### Multi-Key (`sk-`) Format & Legacy Key Pitfalls
+
+- Solo 4.4+ uses **multi-API-Key** storage (`sk-...`, 35 chars total). Legacy 32-char keys without the `sk-` prefix become invalid (`401`) once the admin switches to or cleans up multi-key storage.
+- **Never assume a non-empty `SOLO_API_KEY` is valid without testing.** Run `--check` first, or verify the HTTP status code on the first request.
+- **Never print plaintext secrets** (`cat .env`, `echo $SOLO_API_KEY`, or pasting full keys in replies). Only show masked values (`sk-aB3c****T2uV`).
+
+---
+
+## Execution Pattern & Error Handling
+
+### Recommended: Bundled Wrapper (`scripts/solo_api.py`)
 
 ```bash
-curl -s -H "X-Solo-API-Key: ${SOLO_API_KEY}" -H "Content-Type: application/json" "${SOLO_BASE_URL}/console/..."
-```
+SKILL_DIR="<path-to-solo-admin>"
 
----
+# 1. Verify credential source, key format, and connectivity
+python3 "$SKILL_DIR/scripts/solo_api.py" --check
 
-## API Reference
+# 2. Read endpoints
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/articles/status/published/1/10/20"
 
-### Authentication Header
-
-All requests must include:
-```
-X-Solo-API-Key: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-### Response Format
-
-All APIs return JSON:
-```json
+# 3. Write endpoints with multi-line Markdown/quotes (use --stdin <<'JSON' or --data-file)
+python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/article/" --stdin <<'JSON'
 {
-  "code": 0,     // 0 = success, non-zero = error
-  "msg": "...",  // error message (on failure)
-  ...            // additional data
+  "article": {
+    "articleTitle": "文章标题",
+    "articleContent": "# 正文\n\n含 \"双引号\"、'单引号' 与 `代码` 的内容",
+    "articleTags": "标签1,标签2",
+    "articleStatus": 0,
+    "postToCommunity": false
+  }
 }
+JSON
+
+# 4. Binary zip export (refuses to overwrite target if server returns 401 HTML)
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/export/json" --output ./solo-export.zip
 ```
+
+### Fallback: Native `curl` (If Running Manually)
+
+Load `.env` via `source`, capture HTTP status separately, and parse with a quoted heredoc:
+
+```bash
+set -a; source "<skill-dir>/.env"; set +a
+resp=$(curl -sS -w "\n%{http_code}" -H "X-Solo-API-Key: ${SOLO_API_KEY}" "${SOLO_BASE_URL:-https://blog.lacknb.cn}/console/tags")
+http_code="${resp##*$'\n'}"
+body="${resp%$'\n'*}"
+[ "$http_code" = "200" ] || { echo "HTTP $http_code: $(printf '%s' "$body" | head -c 200)" >&2; exit 1; }
+printf '%s' "$body" | python3 - <<'PY'
+import json, sys
+print(json.dumps(json.load(sys.stdin), ensure_ascii=False, indent=2))
+PY
+```
+
+> [!CAUTION]
+> - **Never pipe `curl -s ... | python3 -m json.tool` directly**: on `401`/`403`, Solo returns an **HTML** error page (`401 Unauthorized!`), causing `Expecting value` and hiding the real HTTP status code.
+> - **Never embed `\"` inside `python3 -c '...'` f-strings**: shell single-quote boundaries do not interpret escapes cleanly and cause syntax errors.
+
+### Two-Layer Response Contract
+
+| Layer | HTTP Status | Body Format | Meaning |
+| --- | --- | --- | --- |
+| Auth / Proxy Middleware | `401` / `403` / `404` / `5xx` | **HTML** (e.g. `401 Unauthorized!`) | Missing, disabled, deleted, or legacy invalid API key; or wrong URL/permission |
+| Application Business | `200` | **JSON** `{"code": 0, ...}` | `code == 0` succeeds; non-zero (`-1`) indicates validation/business error in `msg` |
+| Archive Export | `200` | **Binary** `application/zip` | Only for `/console/export/json` and `/console/export/hexo` |
+
+Detailed response payloads for every endpoint are documented in [references/response-examples.md](references/response-examples.md).
 
 ---
 
 ## Article Management
 
+All endpoints below require `X-Solo-API-Key: sk-...`. Replace paths below with `solo_api.py <METHOD> "<PATH>"`.
+
 ### List Articles
 
 ```bash
-# List published articles (page 1, 10 per page)
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/articles/status/published/1/10/20"
-
-# List drafts
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/articles/status/draft/1/10/20"
-
-# Search by keyword
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/articles/status/published/1/10/20?k=keyword"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/articles/status/published/1/10/20"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/articles/status/draft/1/10/20"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/articles/status/published/1/10/20?k=keyword"
 ```
 
-**Response**: `{ "code": 0, "pagination": {...}, "articles": [{...}] }`
+**Actual fields per item in `articles[]`**: `oId`, `articleTitle` (XML-escaped), `articleAbstract`, `articleAbstractText`, `articleTags` (comma-separated string), `articlePermalink`, `articlePutTop`, `articleSignId`, `articleImg1URL`, `articleStatus` (`0`=published, `1`=draft), `authorName`, `articleCreateTime`, `articleUpdateTime`.
 
-Each article has: `oId`, `articleTitle`, `articleCreateTime`, `articleViewCount`, `articleTags`, `articlePutTop`, `articleStatus`
+> [!NOTE]
+> `articleViewCount` is **not** returned by `/console/articles/status/...` (Solo 4.4+ does not expose view counts here, so reading it yields `null`), and full `articleContent` is excluded from the list response.
 
 ### Get Article Detail
 
 ```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/article/{articleId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/article/{articleId}"
 ```
 
-**Response**: Full article with `articleContent`, `articleAbstract`, `articlePermalink`, etc.
+**Response**: Wrapped under a top-level `"article"` object (`{"code": 0, "article": {...}}`).
+Note the type difference: `article.articleTags` in detail responses is an **array of tag objects** (`[{"oId": "...", "tagTitle": "..."}]`), whereas create/update expects a **comma-separated string**.
 
-### Create Article
+### Create & Update Article
 
 ```bash
-curl -s -X POST -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/article/" -d '{
+# Create (POST /console/article/)
+python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/article/" --stdin <<'JSON'
+{
   "article": {
     "articleTitle": "文章标题",
     "articleContent": "Markdown 内容...",
     "articleAbstract": "摘要（可选，不填自动截取）",
     "articleTags": "标签1,标签2",
+    "articlePermalink": "",
     "articleStatus": 0,
+    "articleSignId": "1",
+    "articleViewPwd": "",
     "postToCommunity": false
   }
-}'
-```
+}
+JSON
 
-- `articleStatus`: `0` = published, `1` = draft
-- `articleTags`: comma-separated tag names
-- `articlePermalink`: optional custom permalink
-- `articleViewPwd`: optional view password
-- `postToCommunity`: whether to push to B3log community
-
-**Response**: `{ "code": 0, "oId": "generated-article-id" }`
-
-### Update Article
-
-```bash
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/article/" -d '{
+# Update (PUT /console/article/) — GET detail first and preserve untouched fields!
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/article/" --stdin <<'JSON'
+{
   "article": {
     "oId": "article-id-here",
     "articleTitle": "更新的标题",
     "articleContent": "更新的内容...",
+    "articleAbstract": "保留或更新的摘要",
     "articleTags": "标签1,标签2",
-    "articleStatus": 0
+    "articlePermalink": "/articles/...",
+    "articleStatus": 0,
+    "articleSignId": "1",
+    "articleViewPwd": "",
+    "postToCommunity": false
   }
-}'
+}
+JSON
 ```
 
-### Delete Article
+- `articleStatus`: `0` = published, `1` = draft.
+- `articleTags`: comma-separated string (at most 4 tags are kept; blank defaults to `"待分类"`). Convert `articleTags[].tagTitle` back to `"t1,t2"` before `PUT`.
+- **Preserve fields on `PUT`**: Always `GET /console/article/{id}` before updating and carry over `articleAbstract`, `articlePermalink`, `articleSignId`, `articleViewPwd`, and `articleTags` unless intentionally changing them.
+
+### Delete / Top / Unpublish / Thumbs
 
 ```bash
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/article/{articleId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/article/{articleId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/article/puttop/{articleId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/article/canceltop/{articleId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/article/unpublish/{articleId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/thumbs?n=6&w=960&h=540"
 ```
 
 > [!CAUTION]
-> Always confirm with the user before deleting articles. Show the article title first.
-
-### Toggle Top / Unpublish
-
-```bash
-# Pin to top
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" "$BASE/console/article/puttop/{articleId}"
-
-# Cancel top
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" "$BASE/console/article/canceltop/{articleId}"
-
-# Unpublish (move to draft)
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" "$BASE/console/article/unpublish/{articleId}"
-```
+> Always show the article title and confirm with the user before deleting an article.
 
 ---
 
-## Category Management
-
-### List Categories
+## Category & Tag Management
 
 ```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/categories/1/10/20"
-```
-
-### Get Category
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/category/{categoryId}"
-```
-
-### Create Category
-
-```bash
-curl -s -X POST -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/category/" -d '{
+# Categories
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/categories/1/10/20"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/category/{categoryId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/category/" --stdin <<'JSON'
+{
   "categoryTitle": "分类名",
   "categoryURI": "category-uri",
   "categoryDescription": "描述",
   "categoryTags": "tag1,tag2"
-}'
+}
+JSON
+# PUT /console/category/ uses the same fields plus "oId"
+python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/category/{categoryId}"
+
+# Tags
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/tags"
+python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/tag/unused"
 ```
 
 > [!NOTE]
-> `categoryURI` must be ASCII only. `categoryTags` references existing tags —
-> the tags must already exist (create an article with those tags first).
-
-### Update Category
-
-```bash
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/category/" -d '{
-  "oId": "category-id",
-  "categoryTitle": "新名称",
-  "categoryURI": "new-uri",
-  "categoryDescription": "新描述",
-  "categoryTags": "tag1,tag2"
-}'
-```
-
-### Delete Category
-
-```bash
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/category/{categoryId}"
-```
-
----
-
-## Tag Management
-
-### List All Tags
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/tags"
-```
-
-**Response**: `{ "code": 0, "tags": [{ "tagTitle": "...", ... }] }`
-
-### Remove Unused Tags
-
-```bash
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/tag/unused"
-```
+> `categoryURI` must be ASCII-only, and every tag listed in `categoryTags` must already exist on at least one article.
 
 ---
 
 ## Link Management
 
-### List Links
+Request bodies for `POST` and `PUT` **must** wrap fields inside `"link": {...}`:
 
 ```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/links/1/10/20"
-```
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/links/1/10/20"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/link/{linkId}"
 
-### Add Link
-
-```bash
-curl -s -X POST -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/link/" -d '{
-  "linkTitle": "链接名称",
-  "linkAddress": "https://example.com",
-  "linkDescription": "描述",
-  "linkIcon": "https://example.com/favicon.ico"
-}'
-```
-
-### Update / Delete Link
-
-```bash
-# Update
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/link/" -d '{ "oId": "id", "linkTitle": "...", "linkAddress": "..." }'
-
-# Delete
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/link/{linkId}"
-```
-
----
-
-## Page Management
-
-### List Pages
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/pages/1/10/20"
-```
-
-### Add / Update / Delete Page
-
-```bash
-# Add
-curl -s -X POST -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/page/" -d '{
-  "pageTitle": "页面标题",
-  "pageContent": "Markdown 内容",
-  "pagePermalink": "/custom-page",
-  "pageOpenTarget": "_self",
-  "pageIcon": "📄"
-}'
-
-# Update (include oId)
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/page/" -d '{ "oId": "id", "pageTitle": "...", "pageContent": "..." }'
-
-# Delete
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/page/{pageId}"
-```
-
----
-
-## Preferences & Settings
-
-### Get Preferences
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/preference/"
-```
-
-Returns: `blogTitle`, `blogSubtitle`, `metaKeywords`, `metaDescription`, `noticeBoard`,
-`localeString`, `timeZoneId`, `articleListDisplayCount`, `faviconURL`, skin settings, etc.
-
-### Update Preferences
-
-```bash
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/preference/" -d '{
-  "preference": {
-    "blogTitle": "My Blog",
-    "blogSubtitle": "subtitle",
-    "mostUsedTagDisplayCount": 15,
-    "articleListDisplayCount": 20,
-    "articleListPaginationWindowSize": 15,
-    "relevantArticlesDisplayCount": 5,
-    "randomArticlesDisplayCount": 5,
-    "externalRelevantArticlesDisplayCount": 0,
-    "feedOutputMode": "abstract",
-    "feedOutputCnt": 10,
-    "faviconURL": "/favicon.ico"
+# Add Link (POST /console/link/)
+python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/link/" --stdin <<'JSON'
+{
+  "link": {
+    "linkTitle": "链接名称",
+    "linkAddress": "https://example.com",
+    "linkDescription": "描述",
+    "linkIcon": "https://example.com/favicon.ico"
   }
-}'
+}
+JSON
+
+# Update Link (PUT /console/link/) — include "oId" inside "link"
+# Delete Link: DELETE /console/link/{linkId}
+```
+
+---
+
+## Page Management (Navigation Links)
+
+Solo's `page` entity represents a **navigation bar link** (there is **no `pageContent` field**). Request bodies for `POST` and `PUT` **must** wrap fields inside `"page": {...}`. To create a standalone Markdown page (such as `/about`), first create a published article with that custom `articlePermalink`, then add a navigation page pointing to it if needed.
+
+```bash
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/pages/1/10/20"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/page/{pageId}"
+
+# Add Page (POST /console/page/)
+python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/page/" --stdin <<'JSON'
+{
+  "page": {
+    "pageTitle": "页面标题",
+    "pagePermalink": "/custom-page",
+    "pageOpenTarget": "_self",
+    "pageIcon": "📄"
+  }
+}
+JSON
+
+# Update Page (PUT /console/page/) — include "oId" inside "page"
+# Delete Page: DELETE /console/page/{pageId}
+```
+
+---
+
+## Preferences, Skins & API Keys
+
+### Preferences (`GET` / `PUT /console/preference/`)
+
+```bash
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/preference/"
 ```
 
 > [!WARNING]
-> When updating preferences, GET the current preference first to avoid overwriting
-> fields you don't intend to change. Merge your changes with existing values.
+> Always `GET /console/preference/` first, merge your updates into the existing `preference` object, and `PUT` the full merged object (including numeric display counts) to avoid overwriting fields or failing server validation.
 
----
-
-## Skin Management
-
-### Get Current Skin
+### Skins (`GET` / `PUT /console/skin`)
 
 ```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/skin"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/skin"
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/skin" --data '{"skin":{"skinDirName":"Jane","mobileSkinDirName":"Jane"}}'
 ```
 
-### Switch Skin
+Available skin directory names can be parsed from the `skin.skins` JSON string returned by `GET /console/skin`.
+
+### API Key Management (`/console/api-key`)
+
+Managed in Solo Web Admin under **后台 → 工具 → API Key 管理** (`#tools/apikey`) or via REST:
 
 ```bash
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/skin" -d '{
-  "skin": {
-    "skinDirName": "Jane",
-    "mobileSkinDirName": "Jane"
-  }
-}'
-```
+# List masked keys and usage metrics
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/api-key"
 
-Available skins (directory names): `9JEYM3GONT`, `Andrea`, `Bruce`, `Casper`, `Community`,
-`Dillinger`, `favourite`, `Finding`, `i-flavor`, `Jane`, `Medium`, `mobile`,
-`nijigen`, `owmx-3.0`, `timeline`, `tree-house`, `yilia`
+# Create new key (plaintext sk-... is returned ONLY ONCE in POST response)
+python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/api-key" --data '{"name": "Antigravity Agent"}'
 
----
+# Enable / disable / rename
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/api-key/{id}" --data '{"name": "Codex Agent", "enabled": true}'
 
-## API Key Management
-
-Solo supports **multiple API Keys** with usage tracking (creation time, last used time, last endpoint, client IP, and call count), which can also be managed via the Solo Web Admin UI under **后台 → 工具 → API Key 管理** (`#tools/apikey`).
-
-### List API Keys
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/api-key"
-```
-
-Returns masked keys (`maskedKey`) and usage metadata (`id`, `name`, `enabled`, `createdAt`, `lastUsedAt`, `lastUsedIp`, `lastUsedEndpoint`, `callCount`). Plaintext keys are never returned after creation.
-
-### Create New API Key
-
-```bash
-curl -s -X POST -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/api-key" -d '{"name": "Antigravity Agent"}'
-```
-
-> [!IMPORTANT]
-> The plaintext `apiKey` (`sk-...`) is returned **only once** in the `POST` response — save it immediately.
-> For initial bootstrap without any existing key, create one from Solo Web Admin (**工具 → API Key 管理**) using browser login, or insert into MySQL `b3_solo_option` (legacy `apiKey` row is auto-migrated on first use).
-
-### Enable / Disable / Rename API Key
-
-```bash
-curl -s -X PUT -H "X-Solo-API-Key: $KEY" -H "Content-Type: application/json" \
-  "$BASE/console/api-key/{id}" -d '{
-  "name": "Codex Agent",
-  "enabled": true
-}'
-```
-
-Both `name` and `enabled` are optional; include whichever fields you want to update.
-
-### Remove API Key
-
-```bash
-# Remove specific key by id
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/api-key/{id}"
-```
-
-(`DELETE /console/api-key?id={id}` is also supported; `DELETE /console/api-key` without `id` only works when at most one key exists.)
-
----
-
-## Export / Import
-
-### Export as JSON
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/export/json" -o solo-export.zip
-```
-
-### Export as Hexo
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/export/hexo" -o solo-hexo.zip
+# Remove by id (DELETE /console/api-key?id={id} also works)
+python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/api-key/{id}"
 ```
 
 ---
 
-## Other Operations
-
-### Remove Unused Archives
+## Export, Logs & Users
 
 ```bash
-curl -s -X DELETE -H "X-Solo-API-Key: $KEY" "$BASE/console/archive/unused"
-```
+# Export blog backup (.zip)
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/export/json" --output solo-export.zip
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/export/hexo" --output solo-hexo.zip
 
-### View Server Log
+# Maintenance & logs
+python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/archive/unused"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/log"
 
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/log"
-```
-
----
-
-## User Management
-
-### List Users
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/users/1/10/20"
-```
-
-### Get User
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/user/{userId}"
-```
-
-### Toggle User Role
-
-```bash
-curl -s -H "X-Solo-API-Key: $KEY" "$BASE/console/changeRole/{userId}"
+# Users
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/users/1/10/20"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/user/{userId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/changeRole/{userId}"
 ```
 
 ---
 
 ## Usage Guidelines
 
-1. **Before writing**: Always check existing articles/tags to avoid duplicates
-2. **Article creation**: Use Markdown format for `articleContent`
-3. **Confirm destructive ops**: Always show the item to be deleted and ask for confirmation
-4. **Preference updates**: GET first, then merge changes, then PUT
-5. **Tag management**: Tags are created automatically when used in articles
-6. **Error handling**: Check `code` field — `0` means success, anything else is an error; show `msg` to user
-7. **Pagination**: URL pattern is `/{page}/{pageSize}/{windowSize}` — start with `1/10/20`
-8. **API Key setup**: Manage keys in Solo Web Admin (**工具 → API Key 管理**, `#tools/apikey`) or via `/console/api-key` endpoints
+1. **Preflight credentials**: Run `solo_api.py --check` first; never trust an untested `.env` variable or skip checking fixed skill `.env` paths.
+2. **Avoid duplicate content**: List existing articles and tags before creating new ones.
+3. **Preserve fields on update**: For both `PUT /console/article/` and `PUT /console/preference/`, fetch the current object first and merge changes (`articleTags` -> comma string for articles).
+4. **Confirm destructive ops**: Show exact title/ID and ask user confirmation before `DELETE` requests.
+5. **Handle two-layer errors properly**: Report `HTTP 401`/`403` HTML errors as authentication/permission issues rather than JSON parsing bugs; report JSON `code != 0` with `msg`.
+6. **Pagination**: URL pattern is `/{page}/{pageSize}/{windowSize}` — start with `1/10/20`.
