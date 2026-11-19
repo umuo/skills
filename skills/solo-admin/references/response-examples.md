@@ -773,6 +773,106 @@
 
 ---
 
+## 树洞管理
+
+可通过 Solo 后台左侧一级菜单 **树洞管理**（`#treehole`）或 REST 接口查询统计、按状态与关键词筛选、单条或批量审核公开/隐藏以及删除留言（均支持 `X-Solo-API-Key` 鉴权）。
+
+### 获取树洞统计 — `GET /console/tree-hole/stats`
+
+```json
+{
+    "code": 0,
+    "stats": {
+        "totalCount": 154,
+        "visibleCount": 151,
+        "pendingCount": 3,
+        "totalLikeCount": 41,
+        "totalWatchedCount": 138
+    }
+}
+```
+
+---
+
+### 分页查询树洞列表 — `GET /console/tree-hole/list`
+
+支持查询参数：`page`（默认 `1`）、`pageSize`（默认 `15`，最大 `100`）、`status`（`all` / `pending` / `visible`）、`keyword`（或 `k`，匹配内容/归属地/IP/oId）。
+
+```json
+{
+    "code": 0,
+    "stats": {
+        "totalCount": 154,
+        "visibleCount": 151,
+        "pendingCount": 3,
+        "totalLikeCount": 41,
+        "totalWatchedCount": 138
+    },
+    "pagination": {
+        "paginationCurrentPageNum": 1,
+        "paginationPageSize": 5,
+        "paginationPageCount": 31,
+        "paginationRecordCount": 154,
+        "paginationPageNums": [1, 2, 3, 4, 5, 6, 7]
+    },
+    "holes": [
+        {
+            "oId": "1624970272735",
+            "content": "Dear Website,\n\n...",
+            "clientIp": "27.185.22.170",
+            "location": "中国-河北省-石家庄市-电信",
+            "createTime": "1624970272785",
+            "isShow": 1,
+            "likeCount": 8,
+            "watchedCount": 17
+        }
+    ]
+}
+```
+
+---
+
+### 单条切换公开/隐藏状态 — `PUT /console/tree-hole/{id}`
+
+请求体：`{"isShow": 1}`（`1`=公开展示，`0`=隐藏/待审核）。
+
+```json
+{
+    "code": 0,
+    "msg": "更新成功"
+}
+```
+
+---
+
+### 批量审核/隐藏 — `PUT /console/tree-hole/batch/status`
+
+请求体：`{"ids": ["1634653220049", "1628009562868"], "isShow": 1}`
+
+```json
+{
+    "code": 0,
+    "updatedCount": 2,
+    "msg": "更新成功"
+}
+```
+
+---
+
+### 删除树洞留言（单条 / 批量）— `DELETE /console/tree-hole/{id}` / `POST /console/tree-hole/batch/delete`
+
+批量请求体：`{"ids": ["1634653220049"]}`（同样支持 `DELETE /console/tree-hole/batch/delete`）。
+
+```json
+{
+    "code": 0,
+    "deletedCount": 1,
+    "msg": "删除成功"
+}
+```
+
+---
+
 ## 其他
 
 ### 清理未使用的标签 — `DELETE /console/tag/unused`

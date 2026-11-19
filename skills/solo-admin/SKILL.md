@@ -2,10 +2,12 @@
 name: solo-admin
 description: >-
   Manage the Solo blog system (blog.lacknb.cn) via its REST API — write and publish
-  articles, manage categories/tags/links/pages, change skins, and adjust preferences.
+  articles, manage categories/tags/links/pages, moderate tree-hole messages, change
+  skins, and adjust preferences.
   Use this skill whenever the user says "发博客", "写文章", "管理博客", "博客设置",
-  "换皮肤", "管理分类", "管理标签", "管理链接", "管理页面", "博客数据", "清理标签",
-  "导出博客", "Solo", or any reference to their personal blog at blog.lacknb.cn.
+  "换皮肤", "管理分类", "管理标签", "管理链接", "管理页面", "树洞", "审核树洞",
+  "博客数据", "清理标签", "导出博客", "Solo", or any reference to their personal
+  blog at blog.lacknb.cn.
   Also trigger when the user wants to publish content, draft posts, list articles,
   or perform any blog administration task. This skill directly wraps Solo's console
   REST API using curl with API Key authentication.
@@ -324,6 +326,44 @@ python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/api-key/{id}" --data '{"n
 # Remove by id (DELETE /console/api-key?id={id} also works)
 python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/api-key/{id}"
 ```
+
+---
+
+## TreeHole (树洞) Management
+
+Manage anonymous TreeHole messages (`/tree-hole` frontend, **后台 → 树洞管理** `#treehole` in Web Admin):
+
+```bash
+# 1. Get aggregate stats (totalCount, visibleCount, pendingCount, totalLikeCount, totalWatchedCount)
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/tree-hole/stats"
+
+# 2. List paginated messages (status: all | pending | visible; optional keyword/k matching content/location/clientIp/oId)
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/tree-hole/list?page=1&pageSize=15&status=pending"
+python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/tree-hole/list?page=1&pageSize=15&status=all&keyword=杭州"
+
+# 3. Approve (isShow=1) or hide (isShow=0) a single message
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/tree-hole/{oId}" --data '{"isShow": 1}'
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/tree-hole/{oId}" --data '{"isShow": 0}'
+
+# 4. Batch approve or hide messages
+python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/tree-hole/batch/status" --stdin <<'JSON'
+{
+  "ids": ["1634653220049", "1628009562868"],
+  "isShow": 1
+}
+JSON
+
+# 5. Delete single or batch messages (confirm with user first!)
+python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/tree-hole/{oId}"
+python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/tree-hole/batch/delete" --stdin <<'JSON'
+{
+  "ids": ["1634653220049"]
+}
+JSON
+```
+
+> [!CAUTION]
+> Always show exact message ID and content preview and ask the user for confirmation before deleting any TreeHole message.
 
 ---
 
