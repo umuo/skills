@@ -6,8 +6,8 @@ description: >-
   skins, and adjust preferences.
   Use this skill whenever the user says "发博客", "写文章", "管理博客", "博客设置",
   "换皮肤", "管理分类", "管理标签", "管理链接", "管理页面", "树洞", "审核树洞",
-  "博客数据", "清理标签", "导出博客", "Solo", or any reference to their personal
-  blog at blog.lacknb.cn.
+  "待审树洞", "树洞留言", "隐藏树洞", "清理树洞", "博客数据", "清理标签", "导出博客",
+  "Solo", or any reference to their personal blog at blog.lacknb.cn.
   Also trigger when the user wants to publish content, draft posts, list articles,
   or perform any blog administration task. This skill directly wraps Solo's console
   REST API using curl with API Key authentication.
@@ -329,38 +329,63 @@ python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/api-key/{id}"
 
 ---
 
-## TreeHole (树洞) Management
+## TreeHole (树洞) Management & Moderation
 
-Manage anonymous TreeHole messages (`/tree-hole` frontend, **后台 → 树洞管理** `#treehole` in Web Admin):
+Manage anonymous TreeHole messages (`/tree-hole` frontend, **后台 → 树洞管理** `#treehole` in Web Admin). Newly submitted messages default to `isShow = 0` (pending review) until approved.
+
+### 1. CLI Shortcuts (`solo_api.py --hole-*`, Recommended)
+
+`solo_api.py` provides dedicated TreeHole helpers that handle URL encoding for Chinese keywords, convert 13-digit timestamps into UTC+8 `createTimeStr`, and decode HTML entities into `contentPlain` for clean review:
 
 ```bash
-# 1. Get aggregate stats (totalCount, visibleCount, pendingCount, totalLikeCount, totalWatchedCount)
-python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/tree-hole/stats"
+# Check overall counts (total, visible, pending, total likes & views)
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-stats
 
-# 2. List paginated messages (status: all | pending | visible; optional keyword/k matching content/location/clientIp/oId)
-python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/tree-hole/list?page=1&pageSize=15&status=pending"
-python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/tree-hole/list?page=1&pageSize=15&status=all&keyword=杭州"
+# Fetch pending review queue (defaults to --hole-list pending)
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-list
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-list pending --page 1 --page-size 20
 
-# 3. Approve (isShow=1) or hide (isShow=0) a single message
-python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/tree-hole/{oId}" --data '{"isShow": 1}'
-python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/tree-hole/{oId}" --data '{"isShow": 0}'
+# Search all / visible messages with Chinese keyword (matches content, location, IP, or oId)
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-list all --keyword "杭州" --page 1 --page-size 20
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-list visible --page 1 --page-size 10
 
-# 4. Batch approve or hide messages
-python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/tree-hole/batch/status" --stdin <<'JSON'
-{
-  "ids": ["1634653220049", "1628009562868"],
-  "isShow": 1
-}
-JSON
+# Approve & publish single or multiple messages (sets isShow=1)
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-approve 1628009562868
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-approve 1634653220049 1628009562868
 
-# 5. Delete single or batch messages (confirm with user first!)
-python3 "$SKILL_DIR/scripts/solo_api.py" DELETE "/console/tree-hole/{oId}"
-python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/tree-hole/batch/delete" --stdin <<'JSON'
-{
-  "ids": ["1634653220049"]
-}
-JSON
+# Hide / unpublish single or multiple messages (sets isShow=0)
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-hide 1634653220049
+
+# Delete single or multiple messages (CONFIRM WITH USER FIRST!)
+python3 "$SKILL_DIR/scripts/solo_api.py" --hole-delete 1634653292743
 ```
+
+### 2. AI Moderation Workflow (树洞审核规范)
+
+When the user asks to review, inspect, moderate, approve, hide, or clean up TreeHole messages:
+
+1. **Fetch the review queue first**: Run `--hole-list` (pending) first. If `holes` is empty, report the current stats cleanly (`pendingCount: 0`) and stop.
+2. **Present each candidate clearly**: Show a structured summary table or numbered list with `oId`, `createTimeStr`, `location` (and `clientIp` when relevant for spam filtering), and `contentPlain` preview, plus a recommendation tag:
+   - **建议通过 (Approve)**: genuine personal thoughts, reflections, wishes, encouragement, or literary quotes.
+   - **建议隐藏或删除 (Hide / Delete)**: XSS/SQLi test payloads (`<script>`, probe strings), meaningless test fragments (`"Hi"`, `"test"`, `"111"`), spam/ads/NSFW links, personal attacks, or leaked private info (phone numbers, IDs, etc.).
+3. **Follow confirmation boundaries before mutating**:
+   - **Viewing / triaging requests** (e.g. "看看有哪些待审核的树洞"): present the formatted list and recommendations, then wait for user selection (e.g. "通过第 3 条，删掉前 2 条") before executing writes.
+   - **Explicit moderation instructions** (e.g. "把正常的待审树洞都通过"): only approve clearly benign items (never auto-approve spam or test XSS rows) and report updated stats.
+   - **Deletions (`--hole-delete` / `DELETE`)**: **ALWAYS** show exact `oId` and content preview and ask for explicit user confirmation before permanently deleting any TreeHole record.
+
+### 3. Underlying REST Endpoints & Public Endpoints
+
+- **Console REST APIs** (require `X-Solo-API-Key`):
+  - `GET /console/tree-hole/stats`
+  - `GET /console/tree-hole/list?page={p}&pageSize={n}&status={all|pending|visible}&keyword={kw}`
+  - `PUT /console/tree-hole/{oId}` (`{"isShow": 1|0}`)
+  - `PUT /console/tree-hole/batch/status` (`{"ids": [...], "isShow": 1|0}`)
+  - `DELETE /console/tree-hole/{oId}`
+  - `POST /console/tree-hole/batch/delete` (or `DELETE`) (`{"ids": [...]}`)
+- **Public Frontend Endpoints** (no auth required, for testing or inspection only):
+  - `GET /hole/message/random` — draws one visible (`isShow = 1`) message (`{"randomMessage": {...}}`)
+  - `POST /hole/message/add` — anonymous submission (`{"hole": {"content": "..."}}`, max 5000 chars, defaults to `isShow = 0`)
+  - `GET /hole/message/addLike/{oId}` — increments resonance count (`likeCount`) once per IP
 
 > [!CAUTION]
 > Always show exact message ID and content preview and ask the user for confirmation before deleting any TreeHole message.
@@ -392,6 +417,6 @@ python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/changeRole/{userId}"
 2. **Article style, cover, and attribution**. Read [references/article-style.md](references/article-style.md) before drafting. Generate and upload a whole-article cover when available, and verify the AI byline before publication.
 3. **Avoid duplicate content**: List existing articles and tags before creating new ones.
 4. **Preserve fields on update**: For both `PUT /console/article/` and `PUT /console/preference/`, fetch the current object first and merge changes (`articleTags` -> comma string for articles).
-5. **Confirm destructive ops**: Show exact title/ID and ask user confirmation before `DELETE` requests.
+5. **Confirm destructive ops**: Show exact title/ID (or TreeHole `oId` + `contentPlain` preview) and ask user confirmation before `DELETE` requests or bulk hiding/approving ambiguous TreeHole submissions.
 6. **Handle two-layer errors properly**: Report `HTTP 401`/`403` HTML errors as authentication/permission issues rather than JSON parsing bugs; report JSON `code != 0` with `msg`.
 7. **Pagination**: URL pattern is `/{page}/{pageSize}/{windowSize}` — start with `1/10/20`.

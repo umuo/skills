@@ -12,8 +12,10 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, urlencode
 
 DEFAULT_BASE_URL = "https://blog.lacknb.cn"
 
@@ -509,6 +511,147 @@ def handle_upload_url(remote_url: str, base_url: str, cred: CredentialCandidate)
         body_tmp.unlink(missing_ok=True)
 
 
+CST_TZ = timezone(timedelta(hours=8))
+_HTML_ENTITY_MAP = {
+    "lt": "<",
+    "gt": ">",
+    "quot": '"',
+    "#39": "'",
+    "amp": "&",
+}
+
+
+def format_millis_cst(raw_ms: object) -> str:
+    """Format a 13-digit millisecond timestamp string/int into UTC+8 YYYY-MM-DD HH:MM:SS."""
+    try:
+        ms = int(str(raw_ms).strip())
+    except (TypeError, ValueError):
+        return ""
+    if ms <= 0:
+        return ""
+    return datetime.fromtimestamp(ms / 1000.0, tz=CST_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def decode_hole_entities_once(text: object) -> str:
+    """Decode HTML entities stored by TreeHoleService in a single pass for clean review."""
+    if text is None:
+        return ""
+    return re.sub(r"&(lt|gt|quot|#39|amp);", lambda m: _HTML_ENTITY_MAP[m.group(1)], str(text))
+
+
+def normalize_hole_ids(raw_ids: list[str]) -> list[str]:
+    """Flatten comma/whitespace-separated TreeHole IDs and deduplicate preserving order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in raw_ids:
+        for part in str(token).split(","):
+            cleaned = part.strip()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                result.append(cleaned)
+    return result
+
+
+def execute_json_api(
+    method: str,
+    url: str,
+    cred: CredentialCandidate,
+    payload: Optional[bytes] = None,
+) -> tuple[int, Optional[dict]]:
+    """Call a Solo Console JSON endpoint and return (exit_code, parsed_json)."""
+    fd, body_tmp_name = tempfile.mkstemp(prefix="solo_resp_")
+    os.close(fd)
+    body_tmp = Path(body_tmp_name)
+
+    try:
+        try:
+            http_code, content_type = run_curl(method, url, cred.api_key, payload, body_tmp)
+        except RuntimeError as exc:
+            print(f"Error: request failed: {exc}", file=sys.stderr)
+            return 4, None
+
+        raw_bytes = body_tmp.read_bytes()
+        if http_code >= 400 or http_code == 0:
+            return handle_error_response(http_code, content_type, raw_bytes, cred), None
+
+        try:
+            parsed = json.loads(raw_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            print(
+                f"Error: HTTP {http_code} returned non-JSON response (content-type: {content_type or 'unknown'}).\n"
+                f"Response preview: {summarize_snippet(raw_bytes)}",
+                file=sys.stderr,
+            )
+            return 4, None
+
+        return 0, parsed
+    finally:
+        body_tmp.unlink(missing_ok=True)
+
+
+def handle_tree_hole_action(args: argparse.Namespace, base_url: str, cred: CredentialCandidate) -> int:
+    """Execute built-in TreeHole moderation shortcuts (--hole-stats/list/approve/hide/delete)."""
+    method = "GET"
+    api_path = "/console/tree-hole/stats"
+    payload: Optional[bytes] = None
+
+    if args.hole_list is not None:
+        query_params: dict[str, object] = {
+            "page": max(1, args.page),
+            "pageSize": min(100, max(1, args.page_size)),
+            "status": args.hole_list,
+        }
+        keyword = (args.keyword or "").strip()
+        if keyword:
+            query_params["keyword"] = keyword
+        api_path = f"/console/tree-hole/list?{urlencode(query_params)}"
+    elif args.hole_approve or args.hole_hide:
+        target_show = 1 if args.hole_approve else 0
+        ids = normalize_hole_ids(args.hole_approve or args.hole_hide)
+        if not ids:
+            print("Error: at least one valid TreeHole oId is required.", file=sys.stderr)
+            return 4
+        if len(ids) == 1:
+            method = "PUT"
+            api_path = f"/console/tree-hole/{quote(ids[0], safe='')}"
+            payload = json.dumps({"isShow": target_show}, ensure_ascii=False).encode("utf-8")
+        else:
+            method = "PUT"
+            api_path = "/console/tree-hole/batch/status"
+            payload = json.dumps({"ids": ids, "isShow": target_show}, ensure_ascii=False).encode("utf-8")
+    elif args.hole_delete:
+        ids = normalize_hole_ids(args.hole_delete)
+        if not ids:
+            print("Error: at least one valid TreeHole oId is required.", file=sys.stderr)
+            return 4
+        if len(ids) == 1:
+            method = "DELETE"
+            api_path = f"/console/tree-hole/{quote(ids[0], safe='')}"
+        else:
+            method = "POST"
+            api_path = "/console/tree-hole/batch/delete"
+            payload = json.dumps({"ids": ids}, ensure_ascii=False).encode("utf-8")
+
+    exit_code, parsed = execute_json_api(method, build_url(base_url, api_path), cred, payload)
+    if exit_code != 0 or parsed is None:
+        return exit_code
+
+    if args.hole_list is not None and isinstance(parsed, dict):
+        holes = parsed.get("holes")
+        if isinstance(holes, list):
+            for item in holes:
+                if not isinstance(item, dict):
+                    continue
+                item["createTimeStr"] = format_millis_cst(item.get("createTime") or item.get("oId"))
+                item["contentPlain"] = decode_hole_entities_once(item.get("content", ""))
+
+    print(json.dumps(parsed, ensure_ascii=False, indent=2))
+    if isinstance(parsed, dict) and parsed.get("code", 0) != 0:
+        print(f"Solo API error (code={parsed.get('code')}): {parsed.get('msg', '')}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Call Solo Blog Console REST API safely via curl.",
@@ -522,15 +665,38 @@ def main() -> int:
     parser.add_argument("--output", help="Save binary response (e.g. export zip) to this file path")
     parser.add_argument("--base-url", help="Override SOLO_BASE_URL")
     parser.add_argument("--env-file", help="Override .env lookup with a specific .env file")
+    parser.add_argument("--keyword", default="", help="Keyword filter for --hole-list (content, location, ip, or oId)")
+    parser.add_argument("--page", type=int, default=1, help="Page number for --hole-list (default: 1)")
+    parser.add_argument("--page-size", type=int, default=20, help="Page size for --hole-list (1-100, default: 20)")
     action_group = parser.add_mutually_exclusive_group()
     action_group.add_argument("--check", action="store_true", help="Verify credential loading and test GET /console/api-key")
     action_group.add_argument("--upload", metavar="FILE", help="Upload a local image via Solo's upload token and print its HTTPS URL")
     action_group.add_argument("--upload-url", metavar="URL", help="Fetch and re-host a remote image URL via POST /upload/fetch")
+    action_group.add_argument("--hole-stats", action="store_true", help="Fetch TreeHole aggregate statistics")
+    action_group.add_argument(
+        "--hole-list",
+        nargs="?",
+        const="pending",
+        default=None,
+        choices=["all", "pending", "visible"],
+        help="List TreeHole messages (defaults to 'pending' when flag value omitted)",
+    )
+    action_group.add_argument("--hole-approve", nargs="+", metavar="OID", help="Approve/publish one or more TreeHole oIds")
+    action_group.add_argument("--hole-hide", nargs="+", metavar="OID", help="Hide/unpublish one or more TreeHole oIds")
+    action_group.add_argument("--hole-delete", nargs="+", metavar="OID", help="Delete one or more TreeHole oIds")
     args = parser.parse_args()
 
-    if not args.check and not args.upload and not args.upload_url:
+    is_hole_action = any([
+        args.hole_stats,
+        args.hole_list is not None,
+        args.hole_approve,
+        args.hole_hide,
+        args.hole_delete,
+    ])
+
+    if not args.check and not args.upload and not args.upload_url and not is_hole_action:
         if not args.method or not args.path:
-            parser.error("METHOD and PATH are required unless --check, --upload, or --upload-url is specified.")
+            parser.error("METHOD and PATH are required unless an action flag (--check, --upload, --hole-*) is specified.")
         method = args.method.upper()
         api_path = args.path
     else:
@@ -559,6 +725,8 @@ def main() -> int:
         return handle_upload_file(args.upload, base_url, cred)
     if args.upload_url:
         return handle_upload_url(args.upload_url, base_url, cred)
+    if is_hole_action:
+        return handle_tree_hole_action(args, base_url, cred)
 
     payload = read_request_body(args)
     url = build_url(base_url, api_path)

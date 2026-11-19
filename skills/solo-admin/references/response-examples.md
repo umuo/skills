@@ -775,7 +775,13 @@
 
 ## 树洞管理
 
-可通过 Solo 后台左侧一级菜单 **树洞管理**（`#treehole`）或 REST 接口查询统计、按状态与关键词筛选、单条或批量审核公开/隐藏以及删除留言（均支持 `X-Solo-API-Key` 鉴权）。
+可通过 Solo 后台左侧一级菜单 **树洞管理**（`#treehole`）、`solo_api.py --hole-*` 快捷命令或 REST 接口查询统计、按状态与关键词筛选、单条或批量审核公开/隐藏以及删除留言（均支持 `X-Solo-API-Key` 鉴权）。
+
+### 快捷 CLI 对照
+- `python3 scripts/solo_api.py --hole-stats` → `GET /console/tree-hole/stats`
+- `python3 scripts/solo_api.py --hole-list [pending|all|visible] [--keyword 杭州] [--page 1] [--page-size 20]` → `GET /console/tree-hole/list?...`（脚本会额外在 `holes[]` 每条记录上附加只读辅助字段 `createTimeStr` 和 `contentPlain`）
+- `python3 scripts/solo_api.py --hole-approve <oId...>` / `--hole-hide <oId...>` → 自动按 ID 数量路由至 `PUT /console/tree-hole/{id}` 或 `PUT /console/tree-hole/batch/status`
+- `python3 scripts/solo_api.py --hole-delete <oId...>` → 自动路由至 `DELETE /console/tree-hole/{id}` 或 `POST /console/tree-hole/batch/delete`
 
 ### 获取树洞统计 — `GET /console/tree-hole/stats`
 
