@@ -119,7 +119,7 @@ All endpoints below require `X-Solo-API-Key: sk-...`. Replace paths below with `
 
 > [!IMPORTANT]
 > **Before writing or publishing an article**, read [references/article-style.md](references/article-style.md) for the article writing and cover-image guidelines:
-> - **Cover first when image generation is available**: Generate 1 landscape cover image (`16:9` / `2.35:1`) summarizing the **whole article**, upload it via `solo_api.py --upload <file>` (or `--upload-url <url>`) to get an HTTPS URL (`<= 255` chars), and place `![文章封面](https://...)` on line 1 of `articleContent`.
+> - **Cover first when image generation is available**: Use the hand-drawn infographic prompt in the article style guide to generate 1 landscape cover image summarizing the **whole article**. Upload it via `solo_api.py --upload <file>` (or `--upload-url <url>`) to get an HTTPS URL (`<= 255` chars), and place `![文章封面](https://...)` on line 1 of `articleContent`.
 > - **Skip gracefully when unavailable**: If no image-generation skill/tool is available, or image upload fails/is unconfigured, omit the cover image and publish normally — never insert local file paths or Base64 strings.
 
 ### List Articles
