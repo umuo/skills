@@ -137,7 +137,7 @@
     "article": {
         "articleTitle": "新文章标题",
         "articleAbstract": "摘要内容",
-        "articleContent": "# 正文\n\nMarkdown 内容...",
+        "articleContent": "> **生成工具**：Codex\\\n> **生成模型**：模型名称\n\nMarkdown 内容...",
         "articleTags": "Java,Solo",
         "articlePermalink": "",
         "articleStatus": 0,
@@ -176,7 +176,7 @@
         "oId": "1609459200000",
         "articleTitle": "更新后的标题",
         "articleAbstract": "更新后的摘要",
-        "articleContent": "# 更新后的内容\n\n...",
+        "articleContent": "> **生成工具**：Codex\\\n> **生成模型**：模型名称\n\n更新后的内容...",
         "articleTags": "Docker,K8s",
         "articleStatus": 0,
         "postToCommunity": false

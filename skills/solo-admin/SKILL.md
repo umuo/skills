@@ -69,7 +69,8 @@ python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/article/" --stdin <<'JSO
 {
   "article": {
     "articleTitle": "文章标题",
-    "articleContent": "# 正文\n\n含 \"双引号\"、'单引号' 与 `代码` 的内容",
+    "articleContent": "> **生成工具**：Codex\\\n> **生成模型**：模型名称\n\n含 \"双引号\"、'单引号' 与 `代码` 的内容",
+    "articleAbstract": "独立撰写的文章摘要",
     "articleTags": "标签1,标签2",
     "articleStatus": 0,
     "postToCommunity": false
@@ -118,9 +119,10 @@ Detailed response payloads for every endpoint are documented in [references/resp
 All endpoints below require `X-Solo-API-Key: sk-...`. Replace paths below with `solo_api.py <METHOD> "<PATH>"`.
 
 > [!IMPORTANT]
-> **Before writing or publishing an article**, read [references/article-style.md](references/article-style.md) for the article writing and cover-image guidelines:
+> **Before writing or publishing an article**, read [references/article-style.md](references/article-style.md) for the article writing, cover-image, and attribution guidelines.
 > - **Cover first when image generation is available**: Use the hand-drawn infographic prompt in the article style guide to generate 1 landscape cover image summarizing the **whole article**. Upload it via `solo_api.py --upload <file>` (or `--upload-url <url>`) to get an HTTPS URL (`<= 255` chars), and place `![文章封面](https://...)` on line 1 of `articleContent`.
-> - **Skip gracefully when unavailable**: If no image-generation skill/tool is available, or image upload fails/is unconfigured, omit the cover image and publish normally — never insert local file paths or Base64 strings.
+> - **Skip the cover when unavailable**. If image generation or upload is unavailable, proceed to the attribution check with the text-only layout.
+> - **Verify AI attribution before publication**. For AI-generated articles, check the byline before sending a create-and-publish request or publishing a draft (`articleStatus: 0`). Use the two-line blockquote in the style guide, with `生成工具` on the first line and `生成模型` on the second. Place it after the cover or at the start of the content when there is no cover. Omit the tool line if only the model is confirmed. Replace sample names with the actual generation details. If the model is unknown, pause publication and ask the user to confirm it.
 
 ### List Articles
 
@@ -156,8 +158,8 @@ python3 "$SKILL_DIR/scripts/solo_api.py" POST "/console/article/" --stdin <<'JSO
 {
   "article": {
     "articleTitle": "文章标题",
-    "articleContent": "![文章封面](https://...)\n\n## 引言\n\nMarkdown 内容...",
-    "articleAbstract": "摘要（可选，不填自动截取）",
+    "articleContent": "![文章封面](https://...)\n\n> **生成工具**：Codex\\\n> **生成模型**：模型名称\n\n## 引言\n\nMarkdown 内容...",
+    "articleAbstract": "独立撰写的文章摘要",
     "articleTags": "标签1,标签2",
     "articlePermalink": "",
     "articleStatus": 0,
@@ -174,7 +176,7 @@ python3 "$SKILL_DIR/scripts/solo_api.py" PUT "/console/article/" --stdin <<'JSON
   "article": {
     "oId": "article-id-here",
     "articleTitle": "更新的标题",
-    "articleContent": "更新的内容...",
+    "articleContent": "> **生成工具**：Codex\\\n> **生成模型**：模型名称\n\n更新的内容...",
     "articleAbstract": "保留或更新的摘要",
     "articleTags": "标签1,标签2",
     "articlePermalink": "/articles/...",
@@ -347,7 +349,7 @@ python3 "$SKILL_DIR/scripts/solo_api.py" GET "/console/changeRole/{userId}"
 ## Usage Guidelines
 
 1. **Preflight credentials**: Run `solo_api.py --check` first; never trust an untested `.env` variable or skip checking fixed skill `.env` paths.
-2. **Article style & cover image**: Read [references/article-style.md](references/article-style.md) before drafting; prefer generating a whole-article cover image via available image-gen tools and uploading via `--upload`, or omit the cover image cleanly if no image-gen/upload capability is available.
+2. **Article style, cover, and attribution**. Read [references/article-style.md](references/article-style.md) before drafting. Generate and upload a whole-article cover when available, and verify the AI byline before publication.
 3. **Avoid duplicate content**: List existing articles and tags before creating new ones.
 4. **Preserve fields on update**: For both `PUT /console/article/` and `PUT /console/preference/`, fetch the current object first and merge changes (`articleTags` -> comma string for articles).
 5. **Confirm destructive ops**: Show exact title/ID and ask user confirmation before `DELETE` requests.
